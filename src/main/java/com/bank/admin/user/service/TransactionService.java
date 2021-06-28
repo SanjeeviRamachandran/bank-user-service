@@ -1,0 +1,68 @@
+package com.bank.admin.user.service;
+
+import com.bank.admin.user.entity.Account;
+import com.bank.admin.user.entity.Transaction;
+import com.bank.admin.user.model.TransactionRequest;
+import com.bank.admin.user.repository.AccountRepository;
+import com.bank.admin.user.repository.TransactionRepository;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.Optional;
+
+@Service
+public class TransactionService {
+
+    @Autowired
+    private AccountRepository accountRepository;
+
+    @Autowired
+    private TransactionRepository transactionRepository;
+
+    public boolean makeTransfer(TransactionRequest transactionInput) {
+        // TODO refactor synchronous implementation with messaging queue
+        String sourceSortCode = transactionInput.getSourceAccount().getSortCode();
+        String sourceAccountNumber = transactionInput.getSourceAccount().getAccountNumber();
+        Optional<Account> sourceAccount = accountRepository
+                .findBySortCodeAndAccountNumber(sourceSortCode, sourceAccountNumber);
+
+        String targetSortCode = transactionInput.getTargetAccount().getSortCode();
+        String targetAccountNumber = transactionInput.getTargetAccount().getAccountNumber();
+        Optional<Account> targetAccount = accountRepository
+                .findBySortCodeAndAccountNumber(targetSortCode, targetAccountNumber);
+
+        if (sourceAccount.isPresent() && targetAccount.isPresent()) {
+            if (isAmountAvailable(transactionInput.getAmount(), sourceAccount.get().getCurrentBalance())) {
+                var transaction = new Transaction();
+
+                transaction.setAmount(transactionInput.getAmount());
+                transaction.setSourceAccountId(sourceAccount.get().getId());
+                transaction.setTargetAccountId(targetAccount.get().getId());
+                transaction.setTargetOwnerName(targetAccount.get().getOwnerName());
+                transaction.setInitiationDate(LocalDateTime.now());
+                transaction.setCompletionDate(LocalDateTime.now());
+                transaction.setReference(transactionInput.getReference());
+                transaction.setLatitude(transactionInput.getLatitude());
+                transaction.setLongitude(transactionInput.getLongitude());
+
+                updateAccountBalance(sourceAccount.get(), transactionInput.getAmount());
+                transactionRepository.save(transaction);
+
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void updateAccountBalance(Account account, double amount) {
+        account.setCurrentBalance((account.getCurrentBalance() - amount));
+        accountRepository.save(account);
+    }
+
+    // TODO support overdrafts or credit account
+    private boolean isAmountAvailable(double amount, double accountBalance) {
+        return (accountBalance - amount) > 0;
+    }
+}
